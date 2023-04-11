@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Function;
 
 @Value(staticConstructor = "of")
 @With
@@ -22,6 +23,12 @@ public class ObjectDef {
     }
 
     public static ObjectDef from(Class<?> clazz) {
+        return clazz.getName().endsWith("kt")
+                ? kotlin(clazz)
+                : java(clazz);
+    }
+
+    public static ObjectDef java(Class<?> clazz) {
         // check lombok @Builder
         Class<?> builderclass = Reflections.findClass(String.format("%s$%sBuilder", clazz.getName(), clazz.getSimpleName())).orElse(null);
         TypeDef objectType = TypeDef.from(clazz).orElse(null);
@@ -45,4 +52,28 @@ public class ObjectDef {
         }
         return new ObjectDef(fields, objectType, builderclass);
     }
+
+    public static ObjectDef kotlin(Class<?> clazz) {
+        Method[] methods = clazz.getDeclaredMethods();
+        Method copyMethod = null;
+        for (Method method : methods) {
+            if (method.getName().equals("copy") && Function.class.isAssignableFrom(method.getReturnType())) {
+                copyMethod = method;
+                break;
+            }
+        }
+        TypeDef objectType = TypeDef.from(clazz).orElse(null);
+        if (copyMethod == null || objectType == null) {
+            return ObjectDef.empty;
+        }
+        Set<FieldDef> fields = new HashSet<>();
+        for (Field field : clazz.getDeclaredFields()) {
+            TypeDef fieldType = TypeDef.from(field.getGenericType()).orElse(null);
+            if (fieldType != null) {
+                fields.add(FieldDef.of(field.getName(), fieldType));
+            }
+        }
+        return new ObjectDef(fields, objectType, clazz);
+    }
+
 }
